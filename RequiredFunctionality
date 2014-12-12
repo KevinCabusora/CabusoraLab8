@@ -1,0 +1,248 @@
+#include <msp430.h>
+#include "msp430g2553.h"
+
+
+void initMSP430();
+
+#define L_Sensor	BIT3
+#define L_Distance	0x3BB // 4 inches
+
+#define	M_Sensor	BIT4
+#define	M_Distance	0x2D7
+
+#define R_Sensor	BIT5
+#define	R_Distance	0x1CA
+
+#define move	1200000
+#define smMove	0300000
+#define delay	6000000
+#define smTurn	0300000
+#define lgTurn	0600000
+
+void initMSP430();
+
+int Left();
+int Middle();
+int Right();
+int Average(unsigned short sample[]);
+
+void moveForward();
+void moveBackward();
+void moveLeft();
+void moveRight();
+void stopMove();
+
+
+int Left()
+{
+	ADC10CTL0 = ADC10SHT_3 + ADC10ON + ADC10IE;
+	ADC10CTL1 = INCH_3;
+	ADC10AE0 |= L_Sensor;
+	ADC10CTL1 |= ADC10SSEL1|ADC10SSEL0;
+	P1DIR |= BIT0;
+
+		ADC10CTL0 |= ENC + ADC10SC;
+		__bis_SR_register(CPUOFF + GIE);
+		if (ADC10MEM < 0x1FF){
+			P1OUT &= ~BIT0;
+		}
+		else{
+			P1OUT |= BIT0;
+		}
+		return 0;
+}
+
+int Middle()
+{
+  ADC10CTL0 = ADC10SHT_3 + ADC10ON + ADC10IE; // ADC10ON, interrupt enabled
+  ADC10CTL1 = INCH_4;                       // input A4
+  ADC10AE0 |= M_Sensor;                         // PA.1 ADC option select
+  ADC10CTL1 |= ADC10SSEL1|ADC10SSEL0;                // Select SMCLK
+  P1DIR |= BIT0|BIT6;                            // Set P1.0 to output direction
+
+    ADC10CTL0 |= ENC + ADC10SC;             // Sampling and conversion start
+    __bis_SR_register(CPUOFF + GIE);        // LPM0, ADC10_ISR will force exit
+    if (ADC10MEM < 0x1FF){
+      P1OUT &= ~(BIT0|BIT6);                       // Clear P1.0 LED off
+    }
+     else{
+      P1OUT |= BIT0|BIT6;                        // Set P1.0 LED on
+	}
+    return 0;
+}
+
+
+int Right()
+{                // Stop WDT
+	ADC10CTL0 = ADC10SHT_3 + ADC10ON + ADC10IE; // ADC10ON, interrupt enabled
+	ADC10CTL1 = INCH_5;                       // input A4
+	ADC10AE0 |= BIT5;                         // PA.1 ADC option select
+	ADC10CTL1 |= ADC10SSEL1|ADC10SSEL0;                // Select SMCLK
+	P1DIR |= BIT6;                            // Set P1.0 to output direction
+
+    ADC10CTL0 |= ENC + ADC10SC;             // Sampling and conversion start
+    __bis_SR_register(CPUOFF + GIE);        // LPM0, ADC10_ISR will force exit
+    if (ADC10MEM < 0x1FF)
+      P1OUT &= ~BIT6;                       // Clear P1.0 LED off
+     else
+      P1OUT |= BIT6;                        // Set P1.0 LED on
+    return 0;
+}
+
+#pragma vector=ADC10_VECTOR
+__interrupt void ADC10_ISR(void) {
+	__bic_SR_register_on_exit(CPUOFF);        // Clear CPUOFF bit from 0(SR)
+}
+
+
+
+void initMSP430();
+
+void main(void) {
+
+	WDTCTL = WDTPW|WDTHOLD;                 // stop the watchdog timer
+
+	P1DIR &= ~BIT3;
+	P1REN |= BIT3;
+
+	// Left Motor Pins
+	P2DIR |= BIT0;	// 1,2EN as OUT
+	P2DIR |= BIT2;  // Left motor direction
+	P2DIR |= BIT1;							// P2.2 is associated with TA1CCR1
+	P2SEL |= BIT1;							// P2.2 is associated with TA1CCTL1
+
+	// Right Motor Pins
+	P2DIR |= BIT5;  // 3,4EN as OUT
+	P2DIR |= BIT3;  // Right motor direction
+	P2DIR |= BIT4;							// P2.4 is associated with TA1CCR2
+	P2SEL |= BIT4;							// P2.4 is associated with TA1CCTL2
+
+	// Timers
+	TA1CTL = ID_3 | TASSEL_2 | MC_1;		// Use 1:8 presclar off MCLK
+	TA1CCR0 = 0x0100;							// set signal period
+
+	TA1CCR1 = 0x0010; // slowed it down because too fast
+	TA1CCTL1 = OUTMOD_7;					// set TACCTL1 to Reset / Set mode
+
+	TA1CCR2 = 0x0010;
+	TA1CCTL2 = OUTMOD_3;					// set TACCTL1 to Reset / Set mode
+
+	__delay_cycles(delay);
+
+	while(1) {
+
+	        if (Left() > L_Distance) 
+	        	P1OUT |= BIT0;
+	        else      
+	        	P1OUT &= ~BIT0;
+
+	        if (Middle() > M_Distance) 
+	        	P1OUT |= (BIT0|BIT6);
+	        else                 
+	        	P1OUT &= ~(BIT0|BIT6);
+
+	        if (Right() > R_Distance) 
+	        	P1OUT |= BIT6;
+	        else                
+	        	P1OUT &= ~BIT6;
+	    }
+	
+    while(1){
+
+    	moveForward();
+    	__delay_cycles(move);
+    	stopMove();
+    	__delay_cycles(delay);
+
+  	    moveLeft();
+ 	    __delay_cycles(Turn);
+   	    stopMove();
+   	    __delay_cycles(delay);
+    }
+	
+	while(1){
+		if (Left() > L_Distance){
+			moveRight();
+			__delay_cycles(smMove);
+			stopMove();
+			__delay_cycles(delay);
+	
+		}
+		else if (Right() >R_Distance){
+			moveLeft();
+			__delay_cycles(smMove);
+			stopMove();
+			__delay_cycles(delay);
+		}
+		}
+
+}// end while
+
+
+ 
+
+void moveForward(){
+
+	// left motor
+	P2OUT |= BIT0;		// EN
+	P2OUT |= BIT2;		// Forward
+	TA1CCTL1 = OUTMOD_7;					// set TACCTL1 to Reset / Set mode
+
+	// right motor
+	P2OUT |= BIT5;		// EN
+	P2OUT &= ~BIT3;		// Forward
+	TA1CCTL2 = OUTMOD_3;					// set TACCTL2 to Set / Reset mode
+
+}// end forward
+
+void moveBackward(){
+
+	// left motor
+	P2OUT |= BIT0;		// EN
+	P2OUT &= ~BIT2;		// Reverse
+	TA1CCTL1 = OUTMOD_3;					// set TACCTL1 to Reset / Set mode
+
+	// right motor
+	P2OUT |= BIT5;		// EN
+	P2OUT |= BIT3;		// Reverse
+	TA1CCTL2 = OUTMOD_7;					// set TACCTL2 to Set / Reset mode
+
+}// end reverse
+
+void stopMove(){
+
+	// left motor
+	P2OUT &= ~BIT0;		// Turn motor off
+
+	// right motor
+	P2OUT &= ~BIT5;		// Turn motor off
+
+}// end stop
+
+void moveLeft(){
+
+	// left motor
+	P2OUT |= BIT0;		// EN
+	P2OUT &= ~BIT2;		// Reverse
+	TA1CCTL1 = OUTMOD_3;					// set TACCTL1 to Reset / Set mode
+
+	// right motor
+	P2OUT |= BIT5;		// EN
+	P2OUT &= ~BIT3;		// Forward
+	TA1CCTL2 = OUTMOD_3;					// set TACCTL2 to Set / Reset mode
+
+}// end left
+
+void moveRight(){
+
+	// left motor
+	P2OUT |= BIT0;		// EN
+	P2OUT |= BIT2;		// Forward
+	TA1CCTL1 = OUTMOD_7;					// set TACCTL1 to Reset / Set mode
+
+	// right motor
+	P2OUT |= BIT5;		// EN
+	P2OUT |= BIT3;		// Reverse
+	TA1CCTL2 = OUTMOD_7;					// set TACCTL2 to Set / Reset mode
+
+}// end right
